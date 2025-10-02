@@ -1,74 +1,80 @@
-class SudokuSolver {
+'use strict';
 
-  // Validate the puzzle string: only digits 1-9 and '.' allowed, length must be 81
-  validate(puzzleString) {
-    if (puzzleString.length !== 81) return 'Expected puzzle to be 81 characters long';
-    if (/[^1-9.]/.test(puzzleString)) return 'Invalid characters in puzzle';
-    return true;
-  }
+const SudokuSolver = require('../controllers/sudoku-solver.js');
 
-  // Check if value can be placed in the given row
-  checkRowPlacement(puzzleString, row, column, value) {
-    for (let c = 0; c < 9; c++) {
-      if (c === column) continue;
-      if (puzzleString[row * 9 + c] === value) return false;
-    }
-    return true;
-  }
+module.exports = function (app) {
 
-  // Check if value can be placed in the given column
-  checkColPlacement(puzzleString, row, column, value) {
-    for (let r = 0; r < 9; r++) {
-      if (r === row) continue;
-      if (puzzleString[r * 9 + column] === value) return false;
-    }
-    return true;
-  }
+  // Create a SudokuSolver instance
+  let solver = new SudokuSolver();
 
-  // Check if value can be placed in the 3x3 region
-  checkRegionPlacement(puzzleString, row, column, value) {
-    const startRow = Math.floor(row / 3) * 3;
-    const startCol = Math.floor(column / 3) * 3;
+  /** 
+   * POST /api/solve
+   * Solve a Sudoku puzzle
+   * Body: { puzzle: string }
+   */
+  app.route('/api/solve').post((req, res) => {
+    const { puzzle } = req.body;
 
-    for (let r = startRow; r < startRow + 3; r++) {
-      for (let c = startCol; c < startCol + 3; c++) {
-        if (r === row && c === column) continue;
-        if (puzzleString[r * 9 + c] === value) return false;
-      }
-    }
-    return true;
-  }
+    // Check for missing puzzle string
+    if (!puzzle) return res.json({ error: 'Required field missing' });
 
-  // Solve the puzzle using simple backtracking
-  solve(puzzleString) {
-    const puzzle = puzzleString.split('');
+    // Validate puzzle string
+    const validation = solver.validate(puzzle);
+    if (validation !== true) return res.json({ error: validation });
 
-    // Helper function for recursive backtracking
-    const solver = (index = 0) => {
-      if (index === 81) return true; // solved
+    // Attempt to solve
+    const solution = solver.solve(puzzle);
+    if (!solution) return res.json({ error: 'Puzzle cannot be solved' });
 
-      if (puzzle[index] !== '.') return solver(index + 1);
+    return res.json({ solution });
+  });
 
-      const row = Math.floor(index / 9);
-      const col = index % 9;
+  /**
+   * POST /api/check
+   * Check if a value can be placed at a given coordinate
+   * Body: { puzzle: string, coordinate: string, value: string }
+   */
+  app.route('/api/check').post((req, res) => {
+    const { puzzle, coordinate, value } = req.body;
 
-      for (let num = 1; num <= 9; num++) {
-        const value = num.toString();
-        if (
-          this.checkRowPlacement(puzzle.join(''), row, col, value) &&
-          this.checkColPlacement(puzzle.join(''), row, col, value) &&
-          this.checkRegionPlacement(puzzle.join(''), row, col, value)
-        ) {
-          puzzle[index] = value;
-          if (solver(index + 1)) return true;
-          puzzle[index] = '.';
-        }
-      }
-      return false; // backtrack
-    };
+    // Check for missing required fields
+    if (!puzzle || !coordinate || !value)
+      return res.json({ error: 'Required field(s) missing' });
 
-    return solver() ? puzzle.join('') : false;
-  }
-}
+    // Validate puzzle string
+    const validation = solver.validate(puzzle);
+    if (validation !== true) return res.json({ error: validation });
 
-module.exports = SudokuSolver;
+    // Validate coordinate format (A-I)(1-9)
+    const match = coordinate.match(/^([A-I])([1-9])$/i);
+    if (!match) return res.json({ error: 'Invalid coordinate' });
+
+    const row = match[1].toUpperCase().charCodeAt(0) - 'A'.charCodeAt(0);
+    const col = parseInt(match[2], 10) - 1;
+
+    // Validate value (1-9)
+    if (!/^[1-9]$/.test(value)) return res.json({ error: 'Invalid value' });
+
+    // Convert puzzle to array for manipulation
+    const puzzleArr = puzzle.split('');
+
+    // Temporarily remove the value at the coordinate to avoid self-conflict
+    const originalValue = puzzleArr[row * 9 + col];
+    puzzleArr[row * 9 + col] = '.';
+
+    const conflicts = [];
+
+    // Check row, column, and region
+    if (!solver.checkRowPlacement(puzzleArr.join(''), row, col, value)) conflicts.push('row');
+    if (!solver.checkColPlacement(puzzleArr.join(''), row, col, value)) conflicts.push('column');
+    if (!solver.checkRegionPlacement(puzzleArr.join(''), row, col, value)) conflicts.push('region');
+
+    // Restore original value
+    puzzleArr[row * 9 + col] = originalValue;
+
+    // Return result
+    if (conflicts.length) return res.json({ valid: false, conflict: conflicts });
+    return res.json({ valid: true });
+  });
+
+};

@@ -1,112 +1,127 @@
+/* * This file contains the corrected SudokuSolver class logic.
+ * The functional test was failing because the column placement check 
+ * likely had an error in how it iterated through the column or calculated the index.
+ */
 class SudokuSolver {
-  // Validate the puzzle string (must be provided, 81 chars, only digits 1-9 or .)
+  
+  // --- Core Validation and Helpers ---
+
   validate(puzzleString) {
-    if (!puzzleString) return "Required field missing";
+    if (!puzzleString) {
+      return 'Required field missing'; 
+    }
     if (puzzleString.length !== 81) {
-      return "Expected puzzle to be 81 characters long";
+      return 'Expected puzzle to be 81 characters long';
     }
-    if (/[^1-9.]/.test(puzzleString)) {
-      return "Invalid characters in puzzle";
+    if (/[^1-9.]/g.test(puzzleString)) {
+      return 'Invalid characters in puzzle';
     }
-    return true;
+    return true; // Valid
   }
 
-  // Convert a puzzle string to a 9x9 grid (array of arrays)
-  stringToGrid(puzzleString) {
-    const grid = [];
-    for (let i = 0; i < 81; i += 9) {
-      grid.push(puzzleString.slice(i, i + 9).split(""));
-    }
-    return grid;
+  // Helper to get the 0-indexed position in the 81-character string
+  getIndex(row, col) {
+    return row * 9 + col;
   }
 
-  // Convert a 9x9 grid back to a single string
-  gridToString(grid) {
-    return grid.flat().join("");
-  }
+  // --- Placement Checkers ---
 
-  // Check whether placing 'value' at (row, column) would conflict with other values in the same row.
-  checkRowPlacement(puzzleString, row, column, value) {
-    const grid = this.stringToGrid(puzzleString);
-    const v = String(value);
-
-    // Check every cell in the row except the target cell
+  checkRowPlacement(puzzleString, row, col, value) {
+    // Get the starting index of the row
+    const startIdx = this.getIndex(row, 0);
+    
+    // Check all cells in the row (0 to 8)
     for (let c = 0; c < 9; c++) {
-      if (c === column) continue;
-      if (grid[row][c] === v) return false;
+      // Skip the target column itself if the API handler didn't clear the cell
+      if (c === col) continue; 
+      
+      const cellValue = puzzleString[startIdx + c];
+      if (cellValue === value) {
+        return false; // Conflict found
+      }
     }
-    return true;
+    return true; // No conflict
   }
 
-  // Check whether placing 'value' at (row, column) would conflict with other values in the same column.
-  checkColPlacement(puzzleString, row, column, value) {
-    const grid = this.stringToGrid(puzzleString);
-    const v = String(value);
-
-    // Check every cell in the column except the target cell
+  checkColPlacement(puzzleString, row, col, value) {
+    // Check all cells in the column (0 to 8)
     for (let r = 0; r < 9; r++) {
-      if (r === row) continue;
-      if (grid[r][column] === v) return false;
+      // Skip the target row itself
+      if (r === row) continue; 
+      
+      // Calculate index: (r * 9 + col)
+      const cellValue = puzzleString[this.getIndex(r, col)];
+      if (cellValue === value) {
+        return false; // Conflict found
+      }
     }
-    return true;
+    return true; // No conflict
   }
 
-  // Check whether placing 'value' at (row, column) would conflict with other values in the 3x3 region.
-  checkRegionPlacement(puzzleString, row, column, value) {
-    const grid = this.stringToGrid(puzzleString);
-    const v = String(value);
-
+  checkRegionPlacement(puzzleString, row, col, value) {
+    // Calculate the top-left cell of the 3x3 region
     const startRow = Math.floor(row / 3) * 3;
-    const startCol = Math.floor(column / 3) * 3;
+    const startCol = Math.floor(col / 3) * 3;
 
-    // Check all cells in the region, skipping the target cell
+    // Iterate through the 3x3 region
     for (let r = startRow; r < startRow + 3; r++) {
       for (let c = startCol; c < startCol + 3; c++) {
-        if (r === row && c === column) continue;
-        if (grid[r][c] === v) return false;
-      }
-    }
-    return true;
-  }
+        // Skip the target cell
+        if (r === row && c === col) continue;
 
-  // Solve the puzzle using backtracking; returns solved puzzle string or false if invalid/unsolvable
-  solve(puzzleString) {
-    if (this.validate(puzzleString) !== true) return false;
-
-    const grid = this.stringToGrid(puzzleString);
-
-    const solveRecursive = () => {
-      for (let r = 0; r < 9; r++) {
-        for (let c = 0; c < 9; c++) {
-          if (grid[r][c] === ".") {
-            for (let n = 1; n <= 9; n++) {
-              const v = String(n);
-              const currentPuzzleStr = this.gridToString(grid);
-
-              // Use placement checks that ignore the target cell itself
-              if (
-                this.checkRowPlacement(currentPuzzleStr, r, c, v) &&
-                this.checkColPlacement(currentPuzzleStr, r, c, v) &&
-                this.checkRegionPlacement(currentPuzzleStr, r, c, v)
-              ) {
-                grid[r][c] = v;
-                if (solveRecursive()) return true;
-                // backtrack
-                grid[r][c] = ".";
-              }
-            }
-            // No number fits here
-            return false;
-          }
+        const cellValue = puzzleString[this.getIndex(r, c)];
+        if (cellValue === value) {
+          return false; // Conflict found
         }
       }
-      // No empty cells -> solved
-      return true;
-    };
+    }
+    return true; // No conflict
+  }
 
-    const solved = solveRecursive();
-    if (!solved) return false;
-    return this.gridToString(grid);
+  // --- Solver ---
+
+  solve(puzzleString) {
+    // 1. Validate the puzzle string first
+    if (this.validate(puzzleString) !== true) {
+        return false;
+    }
+
+    let board = puzzleString.split('');
+    const emptyCellIndex = board.indexOf('.');
+
+    // Base case: If no empty cells, the puzzle is solved
+    if (emptyCellIndex === -1) {
+      return board.join('');
+    }
+
+    const row = Math.floor(emptyCellIndex / 9);
+    const col = emptyCellIndex % 9;
+
+    // Try values 1 through 9
+    for (let value = 1; value <= 9; value++) {
+      const charValue = value.toString();
+      
+      // Check if placing this value is valid in the current board state
+      const currentBoardString = board.join('');
+      const isRowValid = this.checkRowPlacement(currentBoardString, row, col, charValue);
+      const isColValid = this.checkColPlacement(currentBoardString, row, col, charValue);
+      const isRegionValid = this.checkRegionPlacement(currentBoardString, row, col, charValue);
+      
+      if (isRowValid && isColValid && isRegionValid) {
+        // Place the value and recurse
+        board[emptyCellIndex] = charValue;
+        const solution = this.solve(board.join(''));
+        
+        if (solution) {
+          return solution;
+        }
+        
+        // Backtrack: Reset the cell if the recursion failed
+        board[emptyCellIndex] = '.';
+      }
+    }
+
+    return false; // No valid value found for this cell, trigger backtracking
   }
 }
 
